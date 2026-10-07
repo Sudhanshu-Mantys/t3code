@@ -24,6 +24,11 @@ import {
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
 import { titleRegenerationToast } from "../components/threadTitleRegenerationToast";
+import {
+  readThreadHandoffSupported,
+  readThreadHandoffTargets,
+  startThreadHandoff,
+} from "../components/threadHandoffMenu";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { m } from "../i18n/messages";
@@ -138,6 +143,12 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      // Only an environment that can move threads makes the menu wait for targets.
+      const handoffTargets =
+        readThreadHandoffSupported(threadRef.environmentId) &&
+        (thread.handoff == null || thread.handoff.state === "failed")
+          ? await readThreadHandoffTargets(threadRef.environmentId, threadRef.threadId)
+          : [];
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -154,6 +165,7 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        handoffTargets,
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -165,6 +177,14 @@ export function useThreadActionMenu(input: {
         failureToast(
           m(msg("Thread action unavailable")),
           new Error(m(msg("This connection cannot change threads."))),
+        );
+        return;
+      }
+      if (action.startsWith("continue-on:")) {
+        await startThreadHandoff(
+          threadRef.environmentId,
+          threadRef.threadId,
+          action.slice("continue-on:".length),
         );
         return;
       }
