@@ -208,6 +208,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   shellOlderSettled: Schema.optionalKey(Schema.Boolean),
   /** Publishes a pull request refresh when linked-thread answers change; older servers need polling. */
   linkedThreadRefreshes: Schema.optionalKey(Schema.Boolean),
+  /** Accepts `t3_thread_import`, for threads moved here from a linked environment. */
+  threadImport: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

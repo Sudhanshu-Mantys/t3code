@@ -54,6 +54,7 @@ import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import * as ThreadImportService from "./ThreadImportService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
@@ -292,6 +293,9 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
     ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
+const layerThreadImportProvided = ThreadImportService.layer.pipe(
+  Layer.provide(Layer.merge(layerEventSinkProvided, layerThreadManagementProvided)),
+);
 const layerSecretRequestsProvided = SecretRequests.layer.pipe(
   Layer.provide(layerThreadManagementProvided),
 );
@@ -393,6 +397,7 @@ export const layerProduction = Layer.mergeAll(
   layer,
   layerManagedProjectFoldersProvided,
   layerThreadLaunchProvided,
+  layerThreadImportProvided,
   layerScheduledTaskProvided,
   layerScratchThreadPromotionProvided,
   layerSecretRequestsProvided,
