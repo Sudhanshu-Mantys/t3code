@@ -1918,6 +1918,8 @@ export default function ChatView(props: ChatViewProps) {
     if (!isServerThread || activeThreadId === null) {
       throw new Error(gt("Messages from apps need a started thread."));
     }
+    const handoffBlockReason = threadHandoffSendBlockReason(activeThreadShell);
+    if (handoffBlockReason !== null) throw new Error(handoffBlockReason);
     const result = await startThreadTurn({
       environmentId,
       input: {
@@ -2699,7 +2701,6 @@ export default function ChatView(props: ChatViewProps) {
         : [];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
-        ...handoffItems,
         ...feedbackBannerItems,
         ...fallbackItems,
         ...limitRecoveryItems,
@@ -2708,10 +2709,11 @@ export default function ChatView(props: ChatViewProps) {
         ...projectCloneItems,
         ...freshSessionItems,
         ...systemComposerBannerItems,
+        // After the system notices, so a reconnect or update notice wins a priority tie.
+        ...handoffItems,
       ];
     }
     return [
-      ...handoffItems,
       ...feedbackBannerItems,
       ...fallbackItems,
       ...limitRecoveryItems,
@@ -2720,6 +2722,7 @@ export default function ChatView(props: ChatViewProps) {
       ...projectCloneItems,
       ...freshSessionItems,
       ...systemComposerBannerItems,
+      ...handoffItems,
       branchMismatchBannerItem(
         {
           mismatchKey: activeBranchMismatchKey,
