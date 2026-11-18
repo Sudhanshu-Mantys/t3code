@@ -79,7 +79,6 @@ import {
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
-  MonitorIcon,
   PinIcon,
   PinOffIcon,
   PlugIcon,
