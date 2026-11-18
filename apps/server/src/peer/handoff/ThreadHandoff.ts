@@ -8,6 +8,7 @@ import {
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
@@ -295,7 +296,13 @@ const make = Effect.gen(function* () {
         Effect.map(Option.getOrUndefined),
         Effect.orElseSucceed(() => undefined),
       );
-      const cwd = thread.worktreePath ?? project?.workspaceRoot;
+      // With T3CODE_HANDOFF_SHARED_FILES, both machines already hold the same
+      // files (a synced folder), so the thread moves with its conversation only.
+      const sharedFiles = yield* Config.Boolean("T3CODE_HANDOFF_SHARED_FILES").pipe(
+        Config.withDefault(false),
+        Effect.orElseSucceed(() => false),
+      );
+      const cwd = sharedFiles ? undefined : (thread.worktreePath ?? project?.workspaceRoot);
       const tempDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-handoff-" }).pipe(
         Effect.mapError(
           () =>

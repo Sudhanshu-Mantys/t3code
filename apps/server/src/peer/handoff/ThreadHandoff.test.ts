@@ -11,6 +11,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Context from "effect/Context";
 import * as Queue from "effect/Queue";
 import * as Effect from "effect/Effect";
@@ -478,6 +479,43 @@ it.live("a thread moves to the box with its conversation and its git work", () =
       expect(refused.message).toBe("This thread moved to Box. Continue it there.");
     }),
   ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("with shared files, a thread moves with its conversation and leaves the files alone", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const boxTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+      const laptopTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+      const b = yield* serveBox(boxRepo, path.join(root, "box-state"), boxTurns);
+      const a = yield* makeLaptop(laptopRepo, laptopTurns);
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedThread(a, laptopRepo);
+      yield* fileSystem.writeFileString(
+        path.join(laptopRepo, "app.ts"),
+        "export const version = 3;\n",
+      );
+
+      const moved = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+      expect(moved.state).toBe("departed");
+      if (moved.state !== "departed") return;
+
+      const there = yield* idle(b.orchestrator, moved.threadId);
+      expect(there.messages.some((message) => message.text.includes("LAPTOP_QUESTION"))).toBe(true);
+      // No bundle was packed or applied: the box's checkout is as its own sync left it.
+      expect(there.thread.worktreePath ?? boxRepo).toBe(boxRepo);
+      expect(yield* fileSystem.readFileString(path.join(boxRepo, "app.ts"))).toBe(
+        "export const version = 1;\n",
+      );
+    }),
+  ).pipe(
+    Effect.provide(layerTestHost),
+    Effect.provide(
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ T3CODE_HANDOFF_SHARED_FILES: true })),
+    ),
+  ),
 );
 
 it.live("a move the box refuses releases the thread here, untouched", () =>
