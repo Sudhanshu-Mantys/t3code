@@ -23,7 +23,6 @@ import {
   isThreadWokeUnseen,
   snoozeWakeLabel,
 } from "@t3tools/client-runtime/state/thread-settled";
-import { ThreadHandoffCard, threadHandoffClosesComposer } from "./ThreadHandoffCard";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
@@ -935,9 +934,7 @@ function ThreadDetailBody(
   const activeUserInputRequestId = props.activePendingUserInput?.requestId ?? null;
   const questionInFlow = Platform.OS === "android" && activeUserInputRequestId !== null;
   const composerSlotHidden =
-    activeUserInputRequestId !== null ||
-    props.creationState?.kind === "failed" ||
-    threadHandoffClosesComposer(props.selectedThread);
+    activeUserInputRequestId !== null || props.creationState?.kind === "failed";
   const pendingMessageEditBlocked =
     queuedRunEditBlockedReason(
       { openQuestionCount: activeUserInputRequestId === null ? 0 : 1 },

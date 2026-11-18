@@ -9,7 +9,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -97,7 +97,7 @@ const make = Effect.gen(function* () {
   const git = yield* HandoffGit.HandoffGit;
   const httpClient = yield* HttpClient.HttpClient;
   const fileSystem = yield* FileSystem.FileSystem;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const hereId = yield* ServerEnvironment.ServerEnvironment.pipe(
     Effect.flatMap((environment) => environment.getEnvironmentId),
   );
@@ -472,7 +472,7 @@ const make = Effect.gen(function* () {
         thread.projectId,
         input.projectId,
       );
-      const handoffId = (yield* crypto.randomUUIDv4().pipe(Effect.orDie)).replaceAll("-", "");
+      const handoffId = (yield* random.uuidV4()).replaceAll("-", "");
       const busy = records.runs.some(
         (run) =>
           run.status === "running" ||

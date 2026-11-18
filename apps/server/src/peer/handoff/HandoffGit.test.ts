@@ -1,6 +1,7 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -15,7 +16,7 @@ import * as HandoffGit from "./HandoffGit.ts";
 
 const layer = HandoffGit.layer.pipe(
   Layer.provideMerge(VcsProcess.layer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const sh = (cwd: string, args: ReadonlyArray<string>) =>
@@ -383,10 +384,10 @@ it.layer(layer)("handing a thread's git work to another checkout", (it) => {
         assert.isTrue(yield* fileSystem.exists(path.join(root, "box-worktree", "pushed.ts")));
 
         // An untracked file bigger than a handoff carries, and incompressible.
-        const crypto = yield* Crypto.Crypto;
+        const random = yield* SecureRandom.SecureRandom;
         yield* fileSystem.writeFile(
           path.join(laptop, "big.bin"),
-          yield* crypto.randomBytes(HandoffGit.MAX_HANDOFF_BUNDLE_BYTES + 1024).pipe(Effect.orDie),
+          yield* random.randomBytes(HandoffGit.MAX_HANDOFF_BUNDLE_BYTES + 1024).pipe(Effect.orDie),
         );
         const tooLarge = yield* handoff
           .pack({ cwd: laptop, handoffId: "h5", outDir })

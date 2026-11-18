@@ -198,80 +198,72 @@ const make = Effect.gen(function* () {
   const ok = (cwd: string, args: ReadonlyArray<string>) =>
     git(cwd, args, { allowNonZeroExit: true }).pipe(Effect.map((result) => result.exitCode === 0));
 
-  const pack: HandoffGit["Service"]["pack"] = (input) =>
-    Effect.gen(function* () {
-      if (!(yield* ok(input.cwd, ["rev-parse", "--verify", "HEAD"]))) {
-        return yield* new HandoffNotARepositoryError({ cwd: input.cwd });
-      }
-      const tip = yield* out(input.cwd, ["rev-parse", "HEAD"]);
-      const branchName = yield* git(input.cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"], {
-        allowNonZeroExit: true,
-      });
-      const branch = branchName.exitCode === 0 ? branchName.stdout.trim() : null;
-      const gitDir = yield* out(input.cwd, ["rev-parse", "--path-format=absolute", "--git-dir"]);
-      const indexPath = path.join(gitDir, `t3-handoff-index-${input.handoffId}`);
-      // The working tree as a commit on top of the tip, in a private index so
-      // the user's staging is untouched. Ignored files stay behind.
-      const snapshot = yield* Effect.gen(function* () {
-        const env = { GIT_INDEX_FILE: indexPath, ...IDENTITY };
-        yield* git(input.cwd, ["read-tree", "HEAD"], { env });
-        // `:/` is the whole working tree, wherever in it the thread's checkout sits.
-        yield* git(input.cwd, ["add", "--all", "--", ":/"], { env });
-        const tree = (yield* git(input.cwd, ["write-tree"], { env })).stdout.trim();
-        return (yield* git(
-          input.cwd,
-          ["commit-tree", tree, "-p", tip, "-m", `T3 Code handoff ${input.handoffId}`],
-          { env },
-        )).stdout.trim();
-      }).pipe(
-        Effect.ensuring(
-          Effect.forEach([indexPath, `${indexPath}.lock`], (file) =>
-            fileSystem.remove(file, { force: true }).pipe(Effect.ignore),
-          ),
-        ),
-      );
-      const snapshotRef = handoffRef(input.handoffId, "snapshot");
-      yield* git(input.cwd, ["update-ref", snapshotRef, snapshot]);
-      const bundlePath = path.join(input.outDir, `${input.handoffId}.bundle`);
-      // Only what no remote has: the peer fetches the rest from the remote.
-      yield* git(input.cwd, [
-        "bundle",
-        "create",
-        bundlePath,
-        snapshotRef,
-        "--not",
-        "--remotes",
-      ]).pipe(
-        Effect.ensuring(git(input.cwd, ["update-ref", "-d", snapshotRef]).pipe(Effect.ignore)),
-      );
-      const bundleBytes = Number(
-        (yield* fileSystem.stat(bundlePath).pipe(
-          Effect.mapError(
-            (cause) =>
-              new HandoffGitStepError({
-                step: "bundle",
-                detail: "The bundle was not written.",
-                cause,
-              }),
-          ),
-        )).size,
-      );
-      if (bundleBytes > MAX_HANDOFF_BUNDLE_BYTES) {
-        yield* fileSystem.remove(bundlePath, { force: true }).pipe(Effect.ignore);
-        return yield* new HandoffTooLargeError({ bundleBytes });
-      }
-      const remote = yield* git(input.cwd, ["remote", "get-url", "origin"], {
-        allowNonZeroExit: true,
-      });
-      return {
-        bundlePath,
-        bundleBytes,
-        branch,
-        tip,
-        snapshot,
-        baseRemoteUrl: remote.exitCode === 0 ? remote.stdout.trim() : null,
-      };
+  const pack: HandoffGit["Service"]["pack"] = Effect.fn("HandoffGit.pack")(function* (input) {
+    if (!(yield* ok(input.cwd, ["rev-parse", "--verify", "HEAD"]))) {
+      return yield* new HandoffNotARepositoryError({ cwd: input.cwd });
+    }
+    const tip = yield* out(input.cwd, ["rev-parse", "HEAD"]);
+    const branchName = yield* git(input.cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+      allowNonZeroExit: true,
     });
+    const branch = branchName.exitCode === 0 ? branchName.stdout.trim() : null;
+    const gitDir = yield* out(input.cwd, ["rev-parse", "--path-format=absolute", "--git-dir"]);
+    const indexPath = path.join(gitDir, `t3-handoff-index-${input.handoffId}`);
+    // The working tree as a commit on top of the tip, in a private index so
+    // the user's staging is untouched. Ignored files stay behind.
+    const snapshot = yield* Effect.gen(function* () {
+      const env = { GIT_INDEX_FILE: indexPath, ...IDENTITY };
+      yield* git(input.cwd, ["read-tree", "HEAD"], { env });
+      // `:/` is the whole working tree, wherever in it the thread's checkout sits.
+      yield* git(input.cwd, ["add", "--all", "--", ":/"], { env });
+      const tree = (yield* git(input.cwd, ["write-tree"], { env })).stdout.trim();
+      return (yield* git(
+        input.cwd,
+        ["commit-tree", tree, "-p", tip, "-m", `T3 Code handoff ${input.handoffId}`],
+        { env },
+      )).stdout.trim();
+    }).pipe(
+      Effect.ensuring(
+        Effect.forEach([indexPath, `${indexPath}.lock`], (file) =>
+          fileSystem.remove(file, { force: true }).pipe(Effect.ignore),
+        ),
+      ),
+    );
+    const snapshotRef = handoffRef(input.handoffId, "snapshot");
+    yield* git(input.cwd, ["update-ref", snapshotRef, snapshot]);
+    const bundlePath = path.join(input.outDir, `${input.handoffId}.bundle`);
+    // Only what no remote has: the peer fetches the rest from the remote.
+    yield* git(input.cwd, ["bundle", "create", bundlePath, snapshotRef, "--not", "--remotes"]).pipe(
+      Effect.ensuring(git(input.cwd, ["update-ref", "-d", snapshotRef]).pipe(Effect.ignore)),
+    );
+    const bundleBytes = Number(
+      (yield* fileSystem.stat(bundlePath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new HandoffGitStepError({
+              step: "bundle",
+              detail: "The bundle was not written.",
+              cause,
+            }),
+        ),
+      )).size,
+    );
+    if (bundleBytes > MAX_HANDOFF_BUNDLE_BYTES) {
+      yield* fileSystem.remove(bundlePath, { force: true }).pipe(Effect.ignore);
+      return yield* new HandoffTooLargeError({ bundleBytes });
+    }
+    const remote = yield* git(input.cwd, ["remote", "get-url", "origin"], {
+      allowNonZeroExit: true,
+    });
+    return {
+      bundlePath,
+      bundleBytes,
+      branch,
+      tip,
+      snapshot,
+      baseRemoteUrl: remote.exitCode === 0 ? remote.stdout.trim() : null,
+    };
+  });
 
   const apply: HandoffGit["Service"]["apply"] = (input) =>
     Effect.gen(function* () {

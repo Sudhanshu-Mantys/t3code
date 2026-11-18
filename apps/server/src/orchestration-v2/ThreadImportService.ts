@@ -15,7 +15,7 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
@@ -103,13 +103,13 @@ export class ThreadImportService extends Context.Service<
 const make = Effect.gen(function* () {
   const sink = yield* EventSink.EventSinkV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
 
   /** The thread an import of `source` creates here, the same on every retry. */
   const importedThreadId = (source: OrchestratorMcpThreadImportInput["source"]) =>
-    crypto
+    digest
       .digest(
-        "SHA-256",
+        Digest.sha256,
         new TextEncoder().encode(
           `${source.environmentId}\n${source.threadId}\n${source.handoffId}`,
         ),
@@ -194,8 +194,8 @@ const make = Effect.gen(function* () {
       ] satisfies ReadonlyArray<OrchestrationV2DomainEvent>;
     });
 
-  const importThread: ThreadImportService["Service"]["importThread"] = (input) =>
-    Effect.gen(function* () {
+  const importThread: ThreadImportService["Service"]["importThread"] = Effect.fn("importThread")(
+    function* (input) {
       const threadId = yield* importedThreadId(input.source);
       const existing = yield* threads
         .getThreadShell(threadId)
@@ -266,7 +266,8 @@ const make = Effect.gen(function* () {
       }
       const runId = yield* startContinuation(threadId, input);
       return { threadId, projectId: input.projectId, created, runId };
-    });
+    },
+  );
 
   /** Sends the continuation prompt once; a retry replays the same command. */
   const startContinuation = (

@@ -9974,7 +9974,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const next = command.handoff?.state ?? null;
       if (
         next === "departing" &&
-        projection.runs.some((run) => isBlockingRun(run) || run.status === "queued")
+        projection.runs.some((run) => isActiveRun(run) || run.status === "queued")
       ) {
         return yield* reject("A thread moves only while no turn runs or waits on it.");
       }

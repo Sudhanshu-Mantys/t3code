@@ -73,6 +73,8 @@ describe("buildThreadActionMenuItems", () => {
     });
     expect(items.find((item) => item.id === "archive")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
+  });
+
   it("offers each linked environment, disabled with its reason when it cannot take the thread", () => {
     const items = buildThreadActionMenuItems({
       ...baseState,

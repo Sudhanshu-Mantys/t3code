@@ -152,6 +152,8 @@ export const OrchestrationV2LinkedSender = Schema.Struct({
   title: Schema.String,
 });
 export type OrchestrationV2LinkedSender = typeof OrchestrationV2LinkedSender.Type;
+
+/**
  * A thread moving to a linked environment. `pending` waits for the thread's
  * own turn to end (the agent asked to move); `departing` is moving now and
  * takes no new runs; `departed` lives on there as `threadId`, and this copy

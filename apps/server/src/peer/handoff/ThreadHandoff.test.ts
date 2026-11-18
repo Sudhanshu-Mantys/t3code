@@ -21,6 +21,8 @@ import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import { FetchHttpClient } from "effect/http";
 
+import * as AssetSigner from "../../assets/AssetSigner.ts";
+import * as DocumentText from "../../provider/DocumentText.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
@@ -109,6 +111,11 @@ const makeRepos = Effect.gen(function* () {
   const boxRepo = path.join(root, "box");
   yield* git(root, ["clone", "--quiet", origin, laptopRepo]);
   yield* git(root, ["clone", "--quiet", origin, boxRepo]);
+  // Repository identity ignores a local origin, so both clones also name the
+  // hosted repository they stand for. Nothing fetches from it.
+  for (const clone of [laptopRepo, boxRepo]) {
+    yield* git(clone, ["remote", "add", "mirror", "https://github.com/acme/app.git"]);
+  }
   return { root, laptopRepo, boxRepo };
 });
 
@@ -221,12 +228,17 @@ const serveBox = (
       VcsProcess.layer,
     ).pipe(
       Layer.provide(NodeCrypto.layer),
+      Layer.provideMerge(DocumentText.layer),
       Layer.provideMerge(
-        ServerSecretStore.layer.pipe(
-          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), stateDir)),
+        AssetSigner.layer.pipe(
+          Layer.provideMerge(
+            ServerSecretStore.layer.pipe(
+              Layer.provideMerge(ServerConfig.layerTest(process.cwd(), stateDir)),
+            ),
+          ),
         ),
       ),
-      Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Layer.build,
     );
     const layerCore = Layer.succeedContext(core);
@@ -251,9 +263,12 @@ const serveBox = (
       Layer.provide(NodeCrypto.layer),
     );
     // Upload URLs are signed and checked with the box's own secret store.
-    const served = yield* servePeer(box, tools, ServerHttp.layerAttachmentUploadRoute, core).pipe(
-      Effect.provide(layerCore),
-    );
+    const served = yield* servePeer(
+      box,
+      tools,
+      ServerHttp.layerAttachmentUploadRoute.pipe(Layer.provide(layerCore)),
+      core,
+    ).pipe(Effect.provide(layerCore));
     return {
       ...served,
       orchestrator: Context.get(core, Orchestrator.OrchestratorV2),
@@ -276,7 +291,7 @@ const makeLaptop = (
           ),
         ),
       ),
-      Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Layer.build,
     );
     const layerHere = ThreadHandoff.layer.pipe(
