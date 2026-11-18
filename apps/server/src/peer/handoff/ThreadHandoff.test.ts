@@ -58,6 +58,7 @@ import * as PeerLinks from "../PeerLinks.ts";
 import { descriptorOf, layerLinkingEnvironment, linkTo, servePeer } from "../PeerLinks.testkit.ts";
 import * as RemoteDelegation from "../RemoteDelegation.ts";
 import * as HandoffGit from "./HandoffGit.ts";
+import * as ProjectCloneTracker from "../../project/ProjectCloneTracker.ts";
 import * as HandoffImport from "./HandoffImport.ts";
 import * as ThreadHandoff from "./ThreadHandoff.ts";
 import * as PeerLinkRequests from "../PeerLinkRequests.ts";
@@ -210,6 +211,7 @@ const unusedServices = Layer.mergeAll(
   Layer.mock(PeerForwarding.PeerForwarding)({}),
   Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
   Layer.mock(PeerLinks.PeerLinks)({}),
+  Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
   // The box takes moves; it never starts one.
   Layer.mock(ThreadHandoff.ThreadHandoff)({}),
 );

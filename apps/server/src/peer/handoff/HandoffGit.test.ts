@@ -1,3 +1,4 @@
+// @effect-diagnostics processEnvInEffect:off -- the test sets GIT_DIR the way a git hook does.
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

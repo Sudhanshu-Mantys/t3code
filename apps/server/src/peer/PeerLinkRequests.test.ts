@@ -169,6 +169,7 @@ const makeLaptopWith = (
       Layer.provideMerge(PeerLinkRequests.layer),
       Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
       Layer.provide(Layer.mock(RemoteDelegation.RemoteDelegation)({})),
+      Layer.provide(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
       Layer.provide(Layer.succeedContext(answering)),
       Layer.provide(NodeCrypto.layer),
       Layer.provideMerge(layerThreads),

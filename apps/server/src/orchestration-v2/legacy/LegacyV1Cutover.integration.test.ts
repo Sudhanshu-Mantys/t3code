@@ -4,8 +4,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   MessageId,
+  ProviderDriverKind,
   ProviderInstanceId,
+  ProviderThreadId,
+  ProviderTurnId,
   ThreadId,
+  TurnItemId,
+  type OrchestrationV2ProviderSession,
+  type OrchestrationV2ProviderThread,
   type OrchestrationV2ThreadProjection,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
@@ -16,8 +22,10 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
+import * as PubSub from "effect/PubSub";
 import * as References from "effect/References";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "../../persistence/Migrations.ts";
@@ -30,6 +38,7 @@ import Migration0046 from "../../persistence/Migrations/046_RepairAutomaticSettl
 import Migration0047 from "../../persistence/Migrations/047_ProjectionProjectIcon.ts";
 import Migration0048 from "../../persistence/Migrations/048_ProjectionThreadBranchPullRequest.ts";
 import Migration0049 from "../../persistence/Migrations/049_ProjectionThreadsActiveOrderKey.ts";
+import { CodexProviderCapabilitiesV2 } from "../Adapters/CodexAdapterV2.ts";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as EventSink from "../EventSink.ts";
 import * as EventStore from "../EventStore.ts";
@@ -40,7 +49,7 @@ import * as ProjectionStore from "../ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
-import { type CapturedTurn, makeCapturingCodexAdapter } from "../testkit/CapturingCodexAdapter.ts";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 const PROJECT_ID = "project:cutover";
 const ACTIVE_THREAD = "thread:cutover:active";
@@ -65,6 +74,7 @@ const LATEST_MARKER = "LATEST_IMPORT_MARKER";
 const CONTINUATION_PROMPT = "Continue the migrated thread.";
 const CONTINUATION_RESPONSE = "codex continuation response";
 
+const driver = ProviderDriverKind.make("codex");
 const instanceId = ProviderInstanceId.make("codex");
 const modelSelectionJson = '{"instanceId":"codex","model":"gpt-5.4"}';
 const codexModelSelection = {
@@ -667,12 +677,7 @@ const layerBoot = (input: {
         },
       },
     },
-    ProviderAdapterRegistry.layerSingle(
-      makeCapturingCodexAdapter(input.capturedTurns, {
-        response: CONTINUATION_RESPONSE,
-        modelSelection: codexModelSelection,
-      }),
-    ),
+    ProviderAdapterRegistry.layerSingle(makeCodexAdapter(input.capturedTurns)),
     { databaseLayer: layerDatabase },
   );
   return Layer.mergeAll(

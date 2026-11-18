@@ -294,7 +294,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
   ),
 );
 const layerThreadImportProvided = ThreadImportService.layer.pipe(
-  Layer.provide(Layer.merge(layerEventSinkProvided, layerThreadManagementProvided)),
+  Layer.provide(Layer.merge(layerEventSink, layerThreadManagementProvided)),
 );
 const layerSecretRequestsProvided = SecretRequests.layer.pipe(
   Layer.provide(layerThreadManagementProvided),

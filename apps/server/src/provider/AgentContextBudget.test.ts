@@ -33,6 +33,9 @@ import { PreviewManager } from "../preview/Manager.ts";
 import { PreviewBrowser } from "../preview/PreviewBrowser.ts";
 import { ManagedProjectFolders } from "../project/ManagedProjectFolders.ts";
 import { ProjectCloneTracker } from "../project/ProjectCloneTracker.ts";
+import { ThreadImportService } from "../orchestration-v2/ThreadImportService.ts";
+import { ThreadHandoff } from "../peer/handoff/ThreadHandoff.ts";
+import { HandoffImport } from "../peer/handoff/HandoffImport.ts";
 import { ProjectService } from "../project/ProjectService.ts";
 import { ProjectSetupScriptRunner } from "../project/ProjectSetupScriptRunner.ts";
 import { IssueService } from "../issue/IssueService.ts";
@@ -69,6 +72,9 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(PreviewBrowser)({}),
   Layer.mock(PreviewManager)({}),
   Layer.mock(ProjectCloneTracker)({}),
+  Layer.mock(ThreadImportService)({}),
+  Layer.mock(ThreadHandoff)({}),
+  Layer.mock(HandoffImport)({}),
   Layer.mock(ProjectService)({}),
   Layer.mock(ProjectSetupScriptRunner)({}),
   Layer.mock(ProviderAdapterRegistryV2)({}),

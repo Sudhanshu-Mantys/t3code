@@ -178,12 +178,19 @@ const layerTools = Layer.mergeAll(
   ),
   Layer.provide(Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({})),
   Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
-  Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
-  Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
-  Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
-  Layer.provide(Layer.mock(ThreadImportService.ThreadImportService)({})),
-  Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
-  Layer.provide(Layer.mock(RemoteDelegation.RemoteDelegation)({})),
+  // Services the toolkits declare that these calls never reach.
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(PeerForwarding.PeerForwarding)({}),
+      Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
+      Layer.mock(PeerLinks.PeerLinks)({}),
+      Layer.mock(ThreadImportService.ThreadImportService)({}),
+      Layer.mock(ThreadHandoff.ThreadHandoff)({}),
+      Layer.mock(HandoffImport.HandoffImport)({}),
+      Layer.mock(ThreadSearch.ThreadSearch)({}),
+      Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+    ),
+  ),
   Layer.provide(
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/p" }),
   ),

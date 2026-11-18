@@ -143,47 +143,45 @@ const make = Effect.gen(function* () {
       );
 
   /** The project there with this thread's repository, or the one named. */
-  const remoteProject = (
+  const remoteProject = Effect.fn("ThreadHandoff.remoteProject")(function* (
     scope: McpInvocationContext.McpThreadInvocationScope,
     environmentId: EnvironmentId,
     projectId: ProjectId,
     requested: ProjectId | undefined,
-  ) =>
-    Effect.gen(function* () {
-      if (requested !== undefined) return requested;
-      const here = yield* projects.getById(projectId).pipe(
-        Effect.map(Option.getOrUndefined),
-        Effect.orElseSucceed(() => undefined),
-      );
-      // The project's own identity reads blank while its cache is cold.
-      const key =
-        here === undefined
-          ? undefined
-          : (yield* repositoryIdentities.resolve(here.workspaceRoot))?.canonicalKey;
-      if (key === undefined) {
-        return yield* new ThreadHandoffError({
-          reason: "refused",
-          message:
-            "This thread's project has no repository to match there. Pick the project there.",
-        });
-      }
-      const listed = yield* forwarding
-        .call(scope, ProjectToolkit.tools.t3_project_list, environmentId, { limit: 100 })
-        .pipe(Effect.mapError(fromRemote));
-      const matches = listed.projects.filter(
-        (project) => project.repositoryIdentity?.canonicalKey === key,
-      );
-      if (matches.length !== 1) {
-        return yield* new ThreadHandoffError({
-          reason: "refused",
-          message:
-            matches.length === 0
-              ? `No project there has this repository (${key}). Add it there first.`
-              : `Several projects there have this repository; pick one: ${matches.map((p) => p.title).join(", ")}.`,
-        });
-      }
-      return matches[0]!.id;
-    });
+  ) {
+    if (requested !== undefined) return requested;
+    const here = yield* projects.getById(projectId).pipe(
+      Effect.map(Option.getOrUndefined),
+      Effect.orElseSucceed(() => undefined),
+    );
+    // The project's own identity reads blank while its cache is cold.
+    const key =
+      here === undefined
+        ? undefined
+        : (yield* repositoryIdentities.resolve(here.workspaceRoot))?.canonicalKey;
+    if (key === undefined) {
+      return yield* new ThreadHandoffError({
+        reason: "refused",
+        message: "This thread's project has no repository to match there. Pick the project there.",
+      });
+    }
+    const listed = yield* forwarding
+      .call(scope, ProjectToolkit.tools.t3_project_list, environmentId, { limit: 100 })
+      .pipe(Effect.mapError(fromRemote));
+    const matches = listed.projects.filter(
+      (project) => project.repositoryIdentity?.canonicalKey === key,
+    );
+    if (matches.length !== 1) {
+      return yield* new ThreadHandoffError({
+        reason: "refused",
+        message:
+          matches.length === 0
+            ? `No project there has this repository (${key}). Add it there first.`
+            : `Several projects there have this repository; pick one: ${matches.map((p) => p.title).join(", ")}.`,
+      });
+    }
+    return matches[0]!.id;
+  });
 
   /** The conversation as the thread there will see it. */
   const conversation = (threadId: ThreadId) =>
@@ -214,167 +212,168 @@ const make = Effect.gen(function* () {
     );
 
   /** Uploads the bundle there through its signed upload route. */
-  const upload = (
+  const upload = Effect.fn("ThreadHandoff.upload")(function* (
     scope: McpInvocationContext.McpThreadInvocationScope,
     environmentId: EnvironmentId,
     packed: HandoffGit.HandoffPackage,
-  ) =>
-    Effect.gen(function* () {
-      const prepared = yield* forwarding
-        .call(scope, AttachmentToolkit.tools.t3_attachment_prepare_upload, environmentId, {
-          upload: {
-            type: "file",
-            name: `${packed.snapshot.slice(0, 12)}.bundle`,
-            mimeType: "application/x-git-bundle",
-            sizeBytes: packed.bundleBytes,
-          },
-        })
-        .pipe(Effect.mapError(fromRemote));
-      const resolved = yield* links
-        .resolve(environmentId)
-        .pipe(
-          Effect.mapError(
-            (error) => new ThreadHandoffError({ reason: "failed", message: error.message }),
-          ),
-        );
-      const bytes = yield* fileSystem.readFile(packed.bundlePath).pipe(
+  ) {
+    const prepared = yield* forwarding
+      .call(scope, AttachmentToolkit.tools.t3_attachment_prepare_upload, environmentId, {
+        upload: {
+          type: "file",
+          name: `${packed.snapshot.slice(0, 12)}.bundle`,
+          mimeType: "application/x-git-bundle",
+          sizeBytes: packed.bundleBytes,
+        },
+      })
+      .pipe(Effect.mapError(fromRemote));
+    const resolved = yield* links
+      .resolve(environmentId)
+      .pipe(
+        Effect.mapError(
+          (error) => new ThreadHandoffError({ reason: "failed", message: error.message }),
+        ),
+      );
+    const bytes = yield* fileSystem.readFile(packed.bundlePath).pipe(
+      Effect.mapError(
+        () =>
+          new ThreadHandoffError({
+            reason: "failed",
+            message: "The bundle could not be read.",
+          }),
+      ),
+    );
+    const response = yield* httpClient
+      .execute(
+        HttpClientRequest.post(`${resolved.url}${prepared.relativeUrl}`).pipe(
+          HttpClientRequest.setBody(HttpBody.uint8Array(bytes, "application/x-git-bundle")),
+        ),
+      )
+      .pipe(
         Effect.mapError(
           () =>
             new ThreadHandoffError({
               reason: "failed",
-              message: "The bundle could not be read.",
+              message: "The linked environment stopped answering mid-upload.",
             }),
         ),
       );
-      const response = yield* httpClient
-        .execute(
-          HttpClientRequest.post(`${resolved.url}${prepared.relativeUrl}`).pipe(
-            HttpClientRequest.setBody(HttpBody.uint8Array(bytes, "application/x-git-bundle")),
-          ),
-        )
-        .pipe(
-          Effect.mapError(
-            () =>
-              new ThreadHandoffError({
-                reason: "failed",
-                message: "The linked environment stopped answering mid-upload.",
-              }),
-          ),
-        );
-      if (response.status !== 204) {
-        return yield* new ThreadHandoffError({
-          reason: "failed",
-          message: `The linked environment refused the upload (HTTP ${response.status}).`,
-        });
-      }
-      return prepared.attachmentId;
-    });
+    if (response.status !== 204) {
+      return yield* new ThreadHandoffError({
+        reason: "failed",
+        message: `The linked environment refused the upload (HTTP ${response.status}).`,
+      });
+    }
+    return prepared.attachmentId;
+  });
 
   /** The move itself, from `departing`: package, send, import, then mark departed. */
-  const depart = (threadId: ThreadId, projectHint?: ProjectId | undefined) =>
-    Effect.gen(function* () {
-      const records = yield* threads
-        .getThreadRecords(threadId, [])
-        .pipe(
-          Effect.mapError(
-            () =>
-              new ThreadHandoffError({ reason: "not_found", message: "The thread was not found." }),
-          ),
-        );
-      const thread = records.thread;
-      const handoff = thread.handoff;
-      if (handoff?.state !== "departing") return handoff;
-      const scope = scopeFor(thread);
-      const result = yield* Effect.gen(function* () {
-        const projectId = yield* remoteProject(
-          scope,
-          handoff.environmentId,
-          thread.projectId,
-          projectHint,
-        );
-        const project = yield* projects.getById(thread.projectId).pipe(
-          Effect.map(Option.getOrUndefined),
-          Effect.orElseSucceed(() => undefined),
-        );
-        const cwd = thread.worktreePath ?? project?.workspaceRoot;
-        const tempDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-handoff-" }).pipe(
-          Effect.mapError(
-            () =>
-              new ThreadHandoffError({
-                reason: "failed",
-                message: "No temp space for the move.",
+  const depart = Effect.fn("ThreadHandoff.depart")(function* (
+    threadId: ThreadId,
+    projectHint?: ProjectId | undefined,
+  ) {
+    const records = yield* threads
+      .getThreadRecords(threadId, [])
+      .pipe(
+        Effect.mapError(
+          () =>
+            new ThreadHandoffError({ reason: "not_found", message: "The thread was not found." }),
+        ),
+      );
+    const thread = records.thread;
+    const handoff = thread.handoff;
+    if (handoff?.state !== "departing") return handoff;
+    const scope = scopeFor(thread);
+    const result = yield* Effect.gen(function* () {
+      const projectId = yield* remoteProject(
+        scope,
+        handoff.environmentId,
+        thread.projectId,
+        projectHint,
+      );
+      const project = yield* projects.getById(thread.projectId).pipe(
+        Effect.map(Option.getOrUndefined),
+        Effect.orElseSucceed(() => undefined),
+      );
+      const cwd = thread.worktreePath ?? project?.workspaceRoot;
+      const tempDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-handoff-" }).pipe(
+        Effect.mapError(
+          () =>
+            new ThreadHandoffError({
+              reason: "failed",
+              message: "No temp space for the move.",
+            }),
+        ),
+      );
+      const packed =
+        cwd === undefined
+          ? undefined
+          : yield* git.pack({ cwd, handoffId: handoff.handoffId, outDir: tempDir }).pipe(
+              Effect.catchTags({
+                // A thread outside git moves with its conversation only.
+                HandoffNotARepositoryError: () => Effect.undefined,
               }),
-          ),
-        );
-        const packed =
-          cwd === undefined
-            ? undefined
-            : yield* git.pack({ cwd, handoffId: handoff.handoffId, outDir: tempDir }).pipe(
-                Effect.catchTags({
-                  // A thread outside git moves with its conversation only.
-                  HandoffNotARepositoryError: () => Effect.succeed(undefined),
-                }),
-                Effect.mapError(
-                  (error) => new ThreadHandoffError({ reason: "refused", message: error.message }),
-                ),
-              );
-        const attachmentId =
-          packed === undefined ? undefined : yield* upload(scope, handoff.environmentId, packed);
-        return yield* forwarding
-          .call(scope, ProjectToolkit.tools.t3_thread_import, handoff.environmentId, {
-            source: {
-              environmentId: hereId,
-              threadId,
-              handoffId: handoff.handoffId,
-            },
-            projectId,
-            title: thread.title,
-            modelSelection: thread.modelSelection,
-            runtimeMode: thread.runtimeMode,
-            interactionMode: thread.interactionMode,
-            messages: yield* conversation(threadId),
-            continuationPrompt: handoff.continuationPrompt ?? DEFAULT_CONTINUATION,
-            ...(packed === undefined || attachmentId === undefined
-              ? {}
-              : {
-                  bundle: {
-                    attachmentId,
-                    branch: packed.branch,
-                    tip: packed.tip,
-                    snapshot: packed.snapshot,
-                  },
-                }),
-          })
-          .pipe(Effect.mapError(fromRemote));
-      }).pipe(Effect.scoped, Effect.result);
-      if (result._tag === "Failure") {
-        yield* setHandoff(
-          threadId,
-          "departing",
-          {
-            state: "failed",
+              Effect.mapError(
+                (error) => new ThreadHandoffError({ reason: "refused", message: error.message }),
+              ),
+            );
+      const attachmentId =
+        packed === undefined ? undefined : yield* upload(scope, handoff.environmentId, packed);
+      return yield* forwarding
+        .call(scope, ProjectToolkit.tools.t3_thread_import, handoff.environmentId, {
+          source: {
+            environmentId: hereId,
+            threadId,
             handoffId: handoff.handoffId,
-            environmentId: handoff.environmentId,
-            label: handoff.label,
-            lastError: result.failure.message,
           },
-          "failed",
-        ).pipe(Effect.ignore);
-        return yield* Effect.fail(result.failure);
-      }
-      const departed: OrchestrationV2ThreadHandoff = {
-        state: "departed",
-        handoffId: handoff.handoffId,
-        environmentId: handoff.environmentId,
-        label: handoff.label,
-        threadId: result.success.threadId,
-      };
-      yield* setHandoff(threadId, "departing", departed, "departed");
-      return departed;
-    });
+          projectId,
+          title: thread.title,
+          modelSelection: thread.modelSelection,
+          runtimeMode: thread.runtimeMode,
+          interactionMode: thread.interactionMode,
+          messages: yield* conversation(threadId),
+          continuationPrompt: handoff.continuationPrompt ?? DEFAULT_CONTINUATION,
+          ...(packed === undefined || attachmentId === undefined
+            ? {}
+            : {
+                bundle: {
+                  attachmentId,
+                  branch: packed.branch,
+                  tip: packed.tip,
+                  snapshot: packed.snapshot,
+                },
+              }),
+        })
+        .pipe(Effect.mapError(fromRemote));
+    }).pipe(Effect.scoped, Effect.result);
+    if (result._tag === "Failure") {
+      yield* setHandoff(
+        threadId,
+        "departing",
+        {
+          state: "failed",
+          handoffId: handoff.handoffId,
+          environmentId: handoff.environmentId,
+          label: handoff.label,
+          lastError: result.failure.message,
+        },
+        "failed",
+      ).pipe(Effect.ignore);
+      return yield* result.failure;
+    }
+    const departed: OrchestrationV2ThreadHandoff = {
+      state: "departed",
+      handoffId: handoff.handoffId,
+      environmentId: handoff.environmentId,
+      label: handoff.label,
+      threadId: result.success.threadId,
+    };
+    yield* setHandoff(threadId, "departing", departed, "departed");
+    return departed;
+  });
 
-  const options: ThreadHandoff["Service"]["options"] = (threadId) =>
-    Effect.gen(function* () {
+  const options: ThreadHandoff["Service"]["options"] = Effect.fn("ThreadHandoff.options")(
+    function* (threadId) {
       const records = yield* threads
         .getThreadRecords(threadId, [])
         .pipe(
@@ -418,10 +417,11 @@ const make = Effect.gen(function* () {
               ),
         { concurrency: 4 },
       );
-    });
+    },
+  );
 
-  const start: ThreadHandoff["Service"]["start"] = (request) =>
-    Effect.gen(function* () {
+  const start: ThreadHandoff["Service"]["start"] = Effect.fn("ThreadHandoff.start")(
+    function* (request) {
       const threadId = request.threadId ?? request.callerThreadId;
       if (threadId === undefined) {
         return yield* new ThreadHandoffError({
@@ -502,14 +502,15 @@ const make = Effect.gen(function* () {
       }
       yield* setHandoff(input.threadId, current, { state: "departing", ...base }, "departing");
       return (yield* depart(input.threadId, input.projectId)) ?? { state: "departing", ...base };
-    });
+    },
+  );
 
   const cancel: ThreadHandoff["Service"]["cancel"] = (threadId) =>
     setHandoff(threadId, "pending", null, "cancel");
 
   /** A pending move whose turn ended departs; one a restart cut short is settled. */
-  const settle = (threadId: ThreadId) =>
-    Effect.gen(function* () {
+  const settle = Effect.fn("ThreadHandoff.settle")(
+    function* (threadId: ThreadId) {
       const records = yield* threads.getThreadRecords(threadId, ["runs", "messages"], {
         messageRoles: ["user"],
       });
@@ -541,7 +542,9 @@ const make = Effect.gen(function* () {
       if (now.thread.handoff?.state === "departing") {
         yield* depart(threadId).pipe(Effect.ignoreCause({ log: true }));
       }
-    }).pipe(Effect.ignoreCause({ log: true }));
+    },
+    Effect.ignoreCause({ log: true }),
+  );
 
   const start_: ThreadHandoff["Service"]["start_"] = () =>
     forkParked(

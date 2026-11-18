@@ -265,92 +265,87 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const apply: HandoffGit["Service"]["apply"] = (input) =>
-    Effect.gen(function* () {
-      const fetched = handoffRef(input.handoffId, "snapshot");
-      const undo: Array<Effect.Effect<void>> = [];
-      // Read when it runs: the steps are pushed as the apply goes.
-      const rollback = Effect.suspend(() =>
-        Effect.forEach(undo.toReversed(), (step) => step, { discard: true }),
-      );
-      return yield* Effect.gen(function* () {
-        // The bundle builds on commits the remote has; fetch them if missing.
+  const apply: HandoffGit["Service"]["apply"] = Effect.fn("HandoffGit.apply")(function* (input) {
+    const fetched = handoffRef(input.handoffId, "snapshot");
+    const undo: Array<Effect.Effect<void>> = [];
+    // Read when it runs: the steps are pushed as the apply goes.
+    const rollback = Effect.suspend(() =>
+      Effect.forEach(undo.toReversed(), (step) => step, { discard: true }),
+    );
+    return yield* Effect.gen(function* () {
+      // The bundle builds on commits the remote has; fetch them if missing.
+      if (!(yield* ok(input.repoRoot, ["bundle", "verify", input.bundlePath]))) {
+        yield* git(input.repoRoot, ["fetch", "--quiet", "origin"], { allowNonZeroExit: true });
         if (!(yield* ok(input.repoRoot, ["bundle", "verify", input.bundlePath]))) {
-          yield* git(input.repoRoot, ["fetch", "--quiet", "origin"], { allowNonZeroExit: true });
-          if (!(yield* ok(input.repoRoot, ["bundle", "verify", input.bundlePath]))) {
-            return yield* new HandoffMissingBaseError();
+          return yield* new HandoffMissingBaseError();
+        }
+      }
+      yield* git(input.repoRoot, [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        input.bundlePath,
+        `${handoffRef(input.handoffId, "snapshot")}:${fetched}`,
+      ]);
+      undo.push(git(input.repoRoot, ["update-ref", "-d", fetched]).pipe(Effect.ignore));
+      if ((yield* out(input.repoRoot, ["rev-parse", fetched])) !== input.snapshot) {
+        return yield* new HandoffGitStepError({
+          step: "fetch",
+          detail: "The bundle does not hold the snapshot it was sent with.",
+        });
+      }
+      // The branch here may only move forward to the tip, and only when no
+      // checkout has it, so nobody's work is overwritten.
+      let branch = input.branch;
+      if (branch !== null) {
+        const ref = `refs/heads/${branch}`;
+        const existing = yield* git(input.repoRoot, ["rev-parse", "--verify", "--quiet", ref], {
+          allowNonZeroExit: true,
+        });
+        if (existing.exitCode === 0) {
+          const current = existing.stdout.trim();
+          const checkedOut = (yield* out(input.repoRoot, ["worktree", "list", "--porcelain"]))
+            .split("\n")
+            .some((line) => line === `branch ${ref}`);
+          if (checkedOut && current !== input.tip) {
+            return yield* new HandoffBranchCheckedOutError({ branch });
           }
-        }
-        yield* git(input.repoRoot, [
-          "fetch",
-          "--quiet",
-          "--no-tags",
-          input.bundlePath,
-          `${handoffRef(input.handoffId, "snapshot")}:${fetched}`,
-        ]);
-        undo.push(git(input.repoRoot, ["update-ref", "-d", fetched]).pipe(Effect.ignore));
-        if ((yield* out(input.repoRoot, ["rev-parse", fetched])) !== input.snapshot) {
-          return yield* new HandoffGitStepError({
-            step: "fetch",
-            detail: "The bundle does not hold the snapshot it was sent with.",
-          });
-        }
-        // The branch here may only move forward to the tip, and only when no
-        // checkout has it, so nobody's work is overwritten.
-        let branch = input.branch;
-        if (branch !== null) {
-          const ref = `refs/heads/${branch}`;
-          const existing = yield* git(input.repoRoot, ["rev-parse", "--verify", "--quiet", ref], {
-            allowNonZeroExit: true,
-          });
-          if (existing.exitCode === 0) {
-            const current = existing.stdout.trim();
-            const checkedOut = (yield* out(input.repoRoot, ["worktree", "list", "--porcelain"]))
-              .split("\n")
-              .some((line) => line === `branch ${ref}`);
-            if (checkedOut && current !== input.tip) {
-              return yield* new HandoffBranchCheckedOutError({ branch });
+          if (current !== input.tip) {
+            if (!(yield* ok(input.repoRoot, ["merge-base", "--is-ancestor", current, input.tip]))) {
+              return yield* new HandoffBranchDivergedError({ branch });
             }
-            if (current !== input.tip) {
-              if (
-                !(yield* ok(input.repoRoot, ["merge-base", "--is-ancestor", current, input.tip]))
-              ) {
-                return yield* new HandoffBranchDivergedError({ branch });
-              }
-              // Compare-and-swap: fails if the branch moved since it was read.
-              yield* git(input.repoRoot, ["update-ref", ref, input.tip, current]);
-              undo.push(
-                git(input.repoRoot, ["update-ref", ref, current, input.tip]).pipe(Effect.ignore),
-              );
-            }
-            if (checkedOut) branch = null;
-          } else {
-            yield* git(input.repoRoot, ["update-ref", ref, input.tip, ""]);
-            // Only while it is still the tip: a branch someone moved on since keeps their commits.
+            // Compare-and-swap: fails if the branch moved since it was read.
+            yield* git(input.repoRoot, ["update-ref", ref, input.tip, current]);
             undo.push(
-              git(input.repoRoot, ["update-ref", "-d", ref, input.tip]).pipe(Effect.ignore),
+              git(input.repoRoot, ["update-ref", ref, current, input.tip]).pipe(Effect.ignore),
             );
           }
+          if (checkedOut) branch = null;
+        } else {
+          yield* git(input.repoRoot, ["update-ref", ref, input.tip, ""]);
+          // Only while it is still the tip: a branch someone moved on since keeps their commits.
+          undo.push(git(input.repoRoot, ["update-ref", "-d", ref, input.tip]).pipe(Effect.ignore));
         }
-        yield* git(
-          input.repoRoot,
-          branch === null
-            ? ["worktree", "add", "--detach", input.worktreePath, input.tip]
-            : ["worktree", "add", input.worktreePath, branch],
-        );
-        undo.push(
-          git(input.repoRoot, ["worktree", "remove", "--force", input.worktreePath]).pipe(
-            Effect.ignore,
-          ),
-        );
-        // The working tree as it was, untracked files included, then the
-        // index back on the tip so the changes show as uncommitted.
-        yield* git(input.worktreePath, ["checkout", "--no-overlay", input.snapshot, "--", "."]);
-        yield* git(input.worktreePath, ["reset", "--quiet", input.tip]);
-        yield* git(input.repoRoot, ["update-ref", "-d", fetched]).pipe(Effect.ignore);
-        return { branch };
-      }).pipe(Effect.tapError(() => rollback));
-    });
+      }
+      yield* git(
+        input.repoRoot,
+        branch === null
+          ? ["worktree", "add", "--detach", input.worktreePath, input.tip]
+          : ["worktree", "add", input.worktreePath, branch],
+      );
+      undo.push(
+        git(input.repoRoot, ["worktree", "remove", "--force", input.worktreePath]).pipe(
+          Effect.ignore,
+        ),
+      );
+      // The working tree as it was, untracked files included, then the
+      // index back on the tip so the changes show as uncommitted.
+      yield* git(input.worktreePath, ["checkout", "--no-overlay", input.snapshot, "--", "."]);
+      yield* git(input.worktreePath, ["reset", "--quiet", input.tip]);
+      yield* git(input.repoRoot, ["update-ref", "-d", fetched]).pipe(Effect.ignore);
+      return { branch };
+    }).pipe(Effect.tapError(() => rollback));
+  });
 
   return HandoffGit.of({ pack, apply });
 });

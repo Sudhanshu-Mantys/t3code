@@ -47,83 +47,84 @@ const make = Effect.gen(function* () {
   const processes = yield* VcsProcess.VcsProcess;
   const git = yield* HandoffGit.HandoffGit;
 
-  const applyBundle: HandoffImport["Service"]["applyBundle"] = (input) =>
-    Effect.gen(function* () {
-      if (parseThreadSegmentFromAttachmentId(input.bundle.attachmentId) !== "pending") {
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message: "The bundle must be a pending upload from t3_attachment_prepare_upload.",
-        });
-      }
-      const bundlePath = resolveAttachmentPathById({
-        attachmentsDir: config.attachmentsDir,
-        attachmentId: input.bundle.attachmentId,
+  const applyBundle: HandoffImport["Service"]["applyBundle"] = Effect.fn(
+    "HandoffImport.applyBundle",
+  )(function* (input) {
+    if (parseThreadSegmentFromAttachmentId(input.bundle.attachmentId) !== "pending") {
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message: "The bundle must be a pending upload from t3_attachment_prepare_upload.",
       });
-      if (bundlePath === null) {
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message: "The bundle upload was not found. Upload it again.",
-        });
-      }
-      const worktreesSetting = yield* settings.getSettings.pipe(
-        Effect.map((current) => current.worktreesDirectory),
-        Effect.orElseSucceed(() => ""),
-      );
-      const parent = resolveWorktreesDirectory(
-        worktreesSetting,
-        config.worktreesDir,
-        path,
-        yield* HostProcess.HomeDirectory,
-      );
-      if (parent === null) {
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            "This environment's worktree location is not usable. Fix it in Settings → Storage.",
-        });
-      }
-      const name = (input.bundle.branch ?? `handoff-${input.handoffId}`).replace(/\//g, "-");
-      const worktreePath = path.join(parent, path.basename(input.repoRoot), name);
-      const applied = yield* git
-        .apply({
-          repoRoot: input.repoRoot,
-          worktreePath,
-          handoffId: input.handoffId,
-          bundlePath,
-          branch: input.bundle.branch,
-          tip: input.bundle.tip,
-          snapshot: input.bundle.snapshot,
-        })
-        .pipe(
-          Effect.mapError(
-            (error) =>
-              new OrchestratorMcpFailure({
-                code:
-                  error._tag === "HandoffGitStepError" ? "orchestration_error" : "invalid_request",
-                message: error.message,
-              }),
-          ),
-          Effect.ensuring(
-            deletePendingAttachment(input.bundle.attachmentId).pipe(
-              Effect.provideService(ServerConfig.ServerConfig, config),
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.ignore,
-            ),
-          ),
-        );
-      return {
-        worktreePath,
-        branch: applied.branch,
-        undo: processes
-          .run({
-            operation: "HandoffImport.undo",
-            command: "git",
-            cwd: input.repoRoot,
-            args: ["worktree", "remove", "--force", worktreePath],
-          })
-          .pipe(Effect.ignore),
-      } satisfies ThreadImportService.ImportedWorkspace;
+    }
+    const bundlePath = resolveAttachmentPathById({
+      attachmentsDir: config.attachmentsDir,
+      attachmentId: input.bundle.attachmentId,
     });
+    if (bundlePath === null) {
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message: "The bundle upload was not found. Upload it again.",
+      });
+    }
+    const worktreesSetting = yield* settings.getSettings.pipe(
+      Effect.map((current) => current.worktreesDirectory),
+      Effect.orElseSucceed(() => ""),
+    );
+    const parent = resolveWorktreesDirectory(
+      worktreesSetting,
+      config.worktreesDir,
+      path,
+      yield* HostProcess.HomeDirectory,
+    );
+    if (parent === null) {
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message:
+          "This environment's worktree location is not usable. Fix it in Settings → Storage.",
+      });
+    }
+    const name = (input.bundle.branch ?? `handoff-${input.handoffId}`).replace(/\//g, "-");
+    const worktreePath = path.join(parent, path.basename(input.repoRoot), name);
+    const applied = yield* git
+      .apply({
+        repoRoot: input.repoRoot,
+        worktreePath,
+        handoffId: input.handoffId,
+        bundlePath,
+        branch: input.bundle.branch,
+        tip: input.bundle.tip,
+        snapshot: input.bundle.snapshot,
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new OrchestratorMcpFailure({
+              code:
+                error._tag === "HandoffGitStepError" ? "orchestration_error" : "invalid_request",
+              message: error.message,
+            }),
+        ),
+        Effect.ensuring(
+          deletePendingAttachment(input.bundle.attachmentId).pipe(
+            Effect.provideService(ServerConfig.ServerConfig, config),
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.ignore,
+          ),
+        ),
+      );
+    return {
+      worktreePath,
+      branch: applied.branch,
+      undo: processes
+        .run({
+          operation: "HandoffImport.undo",
+          command: "git",
+          cwd: input.repoRoot,
+          args: ["worktree", "remove", "--force", worktreePath],
+        })
+        .pipe(Effect.ignore),
+    } satisfies ThreadImportService.ImportedWorkspace;
+  });
 
   return HandoffImport.of({ applyBundle });
 });
