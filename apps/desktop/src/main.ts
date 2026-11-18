@@ -69,6 +69,7 @@ import * as DesktopTelemetryPublisher from "./telemetry/DesktopTelemetryPublishe
 import * as DesktopRendererHistory from "./telemetry/DesktopRendererHistory.ts";
 import * as DesktopUpdatePolicy from "./updates/DesktopUpdatePolicy.ts";
 import * as DesktopUpdates from "./updates/DesktopUpdates.ts";
+import { startForkUpdateCheck } from "./forkUpdateCheck.ts";
 import * as BrowserImport from "./preview/BrowserImport/BrowserImport.ts";
 import * as LinuxBrowserSecret from "./preview/BrowserImport/LinuxBrowserSecret.ts";
 import * as BrowserSession from "./preview/BrowserSession.ts";
@@ -251,5 +252,7 @@ const layerDesktopRuntime = layerDesktopClerk.pipe(
   ),
   Layer.provideMerge(DesktopPreReadyPlatform.layer),
 );
+
+startForkUpdateCheck();
 
 DesktopApp.program.pipe(Effect.provide(layerDesktopRuntime), NodeRuntime.runMain);

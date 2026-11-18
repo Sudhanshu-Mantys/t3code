@@ -1,3 +1,4 @@
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -39,9 +40,14 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
   }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    // Lets a second install keep its own Chromium profile and single-instance lock.
+    const userDataName = yield* Config.String("T3CODE_USER_DATA_NAME").pipe(
+      Config.withDefault("t3code-v2"),
+      Effect.orElseSucceed(() => "t3code-v2"),
+    );
     const names = input.isDevelopment
       ? { current: "t3code-dev", legacy: "T3 Code (Dev)" }
-      : { current: "t3code-v2", legacy: "T3 Code (Alpha)" };
+      : { current: userDataName, legacy: "T3 Code (Alpha)" };
     const destinationPath = path.join(input.appDataDirectory, names.current);
     const legacyPath = path.join(input.appDataDirectory, names.legacy);
     const inspect = (resourcePath: string) =>
